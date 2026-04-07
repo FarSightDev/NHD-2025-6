@@ -1,0 +1,79 @@
+import socket
+import subprocess
+import ipaddress
+import re
+
+
+
+
+def get_ip_range():
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.connect(("8.8.8.8", 80))
+  local_ip = s.getsockname()[0]
+   s.close()
+
+
+  output = subprocess.check_output(["ip", "addr"], text=True)
+
+
+  for line in output.splitlines():
+   if local_ip in line:
+       match = re.search(r'inet (\d+\.\d+\.\d+\.\d+)/(\d+)', line)
+      if match:
+             ip = match.group(1)
+         cidr = match.group(2)
+             return ipaddress.ip_network(f"{ip}/{cidr}", strict=False)
+    raise RuntimeError("Network range not found")
+
+
+
+
+def scan_network(ip_range):
+    return subprocess.check_output(
+        ["nmap", "-sn", str(ip_range)],
+        text=True
+    )
+
+
+
+
+def parse_nmap_output(output):
+    devices = []
+    current = {}
+
+
+    for line in output.splitlines():
+        if line.startswith("Nmap scan report for"):
+            if current:
+                devices.append(current)
+            parts = line.replace("Nmap scan report for ", "")
+            if "(" in parts and ")" in parts:
+                hostname, ip = parts.split(" (")
+                ip = ip.strip(")")
+            else:
+                hostname = None
+             ip = parts
+            current = {"ip": ip, "hostname": hostname}
+        elif "MAC Address:" in line:
+            current["mac"] = line.split()[2]
+
+
+    if current:
+        devices.append(current)
+
+
+    return devices
+
+
+
+
+ip_range = get_ip_range()
+output = scan_network(ip_range)
+devices = parse_nmap_output(output)
+
+
+for d in devices:
+    ip = d.get("ip", "")
+    mac = d.get("mac", "unknown")
+    hostname = d.get("hostname", "unknown")
+    print(f"{ip} | {hostname} | {mac}")
